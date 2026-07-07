@@ -4,10 +4,14 @@ This Repo contains the Active Directory Enumeration scripts.
 
 ### Repo Structure..
 ```bash
-bloodhound
-   --> bloodhound2enum.sh
+nmap
+  --> nmap2enum.sh
+
 rpc
    --> rpc2enum.sh
+
+bloodhound
+   --> bloodhound2enum.sh
 ```
 
 
