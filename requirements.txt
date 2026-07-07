@@ -3,3 +3,6 @@ net rpc
 bloodhound-python
 rusthound
 rpcclient
+fscan
+nmap
+fping
