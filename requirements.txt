@@ -6,3 +6,8 @@ rpcclient
 fscan
 nmap
 fping
+git         
+curl                    
+git-dumper               
+trufflehog
+gitleaks 
