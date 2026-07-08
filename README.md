@@ -12,6 +12,9 @@ rpc
 
 bloodhound
    --> bloodhound2enum.sh
+
+git
+   --> gitcheck2enum.sh
 ```
 
 
