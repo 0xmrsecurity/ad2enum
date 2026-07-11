@@ -11,3 +11,5 @@ curl
 git-dumper               
 trufflehog
 gitleaks 
+katana
+gospider
