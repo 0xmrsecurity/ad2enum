@@ -7,6 +7,7 @@
 # ./gitcheck2enum.sh -u https://git.example.com/app.git
 # ./gitcheck2enum.sh -p ./Already-cloned-Repo
 set -u
+set -o pipefail
 
 export GIT_PAGER=cat
 export PAGER=cat
@@ -16,7 +17,7 @@ DRED='\033[38;5;9m'
 DGREEN='\033[38;5;46m'
 DYELLOW='\033[38;5;226m'
 NC='\033[0m'
-
+ 
 export GREP_COLORS='mt=01;38;5;196'
 
 banner()  { echo -e "${DRED}[*] $1${NC}"; }
@@ -25,7 +26,7 @@ warn()    { echo -e "${DYELLOW}[!] $1${NC}"; }
 
 show_help() {
     cat << EOF
-gitcheck2enum.sh - Clone + enumerate a git repository for recon
+gitcheck2enum.sh - Clone + Enumerate a Git repository.
 
 USAGE:
     ./gitcheck2enum.sh [-u URL | -p PATH] [-h|--help]
@@ -60,8 +61,10 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         -u|--url)
+            [[ -n "${2:-}" ]] || { warn "-u/--url requires a value. Use -h for help."; exit 1; }
             URL="$2"; shift 2 ;;
         -p|--path)
+            [[ -n "${2:-}" ]] || { warn "-p/--path requires a value. Use -h for help."; exit 1; }
             LOCAL_PATH="$2"; shift 2 ;;
         *)
             warn "Unknown argument: $1 (use -h for help)"
@@ -87,9 +90,7 @@ fi
 
 banner "GitCheck2Enum - Git Recon Pipeline"
 banner "Target: ${URL:-$LOCAL_PATH}"
-
-# ---- Step 0: Check for an exposed .git/ on a web server (different attack path
-# than a real git remote - common misconfig: web root includes the .git folder) ----
+ 
 if [[ -n "$URL" && "$URL" =~ ^https?:// ]] && command -v curl &>/dev/null; then
     section "Checking for an exposed .git/ directory on the web server"
     PROBE_URL="${URL%/}"
@@ -115,7 +116,7 @@ if [[ -n "$URL" && "$URL" =~ ^https?:// ]] && command -v curl &>/dev/null; then
     fi
 fi
 
-# ---- Step 1: Clone (or use existing local path) ----
+ 
 REPO_DIR="$SAFE_NAME"
 
 if [[ -n "$LOCAL_PATH" ]]; then
@@ -254,14 +255,26 @@ git rev-list --objects --all 2>/dev/null \
 # ---- Secrets / automation check (with matched keywords highlighted inline) ----
 section "Secrets / automation check (matches highlighted)"
 git log -p --all --full-history 2>/dev/null | grep --color=always -iE \
-    "(postgres|mysql|mongodb|DATABASE_URL|DB_URL|sqlalchemy|sqlite|redis|connection_string|passwd|password|pwd|api_key|api_secret|secret_key|secret|token|auth_token|bearer|private_key|access_key|aws_key|aws_access|aws_secret|AWS_ACCESS_KEY|AWS_SECRET|S3_BUCKET|http|https|ftp|endpoint|base_url|host|port|username|user|db|db_name|MONGO_URI|REDIS_URL|JWT_SECRET|NEXTAUTH|STRIPE|SENDGRID|TWILIO|firebase|supabase|clerk|oauth|client_id|client_secret)"
+    "(postgres|mysql|mongodb|DATABASE_URL|DB_URL|sqlalchemy|sqlite|redis|connection_string|passwd|password|pwd|api_key|api_secret|secret_key|secret|token|auth_token|bearer|private_key|access_key|aws_key|aws_access|aws_secret|AWS_ACCESS_KEY|AWS_SECRET|S3_BUCKET|http|https|ftp|endpoint|base_url|host|port|username|user|db|db_name|MONGO_URI|REDIS_URL|JWT_SECRET|NEXTAUTH|STRIPE|SENDGRID|TWILIO|firebase|supabase|clerk|oauth|client_id|bucket|ec2|client_secret)"
 
 # ---- TruffleHog (verified secrets, if installed) ----
 section "TruffleHog scan (verified secrets, if installed)"
 if command -v trufflehog &>/dev/null; then
-    trufflehog git "file://$(pwd)" --only-verified
+    # v2 (Python, dxa4481/trufflesecurity legacy) uses a plain positional
+    # git_url argument and has no --only-verified flag. v3 (Go rewrite) uses
+    # subcommands (git/github/filesystem/...) and supports --only-verified.
+    # Detect which one is installed from its own --help output and call it
+    # with the matching syntax instead of assuming v3.
+    if trufflehog --help 2>&1 | grep -q "git_url"; then
+        warn "Detected TruffleHog v2 (legacy Python) - it has no verified-secret"
+        warn "mode, so results here are regex+entropy based, same signal class"
+        warn "as the grep check above, not a strictly higher-confidence pass."
+        trufflehog --regex --entropy=True "file://$(pwd)"
+    else
+        trufflehog git "file://$(pwd)" --only-verified
+    fi
 else
-    warn "trufflehog not installed - skipping. (pip/brew/go install trufflehog for verified-secret detection)"
+    warn "trufflehog not installed - skipping. (pipx install trufflehog for verified-secret detection)"
 fi
 
 # ---- Gitleaks (if installed) ----
@@ -269,7 +282,7 @@ section "Gitleaks scan (if installed)"
 if command -v gitleaks &>/dev/null; then
     gitleaks detect -v --source .
 else
-    warn "gitleaks not installed - skipping. (apt/brew install gitleaks for a second-opinion secrets scan)"
+    warn "gitleaks not installed - skipping. (apt install gitleaks for a second-opinion secrets scan)"
 fi
 
 cd - > /dev/null
