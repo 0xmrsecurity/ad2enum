@@ -13,11 +13,11 @@ rpc
 bloodhound  
    --> bloodhound2enum.sh    (added)
 
-git          (added)
+git    
    --> gitcheck2enum.sh      (added)
 
-crawler  (add soon!)
-   --> crawlurl2enum.sh   (add soon!)
+crawler  
+   --> crawlurl2enum.sh      (added)
 ```
 
 
