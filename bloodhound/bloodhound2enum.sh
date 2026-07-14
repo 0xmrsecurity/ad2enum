@@ -1,16 +1,15 @@
 #!/bin/bash
-# bloodhound2enum.sh -> AD enumeration + multi-collector BloodHound loot script
+# bloodhound2enum.sh -> AD Enum + Multi-collector BloodHound loot script
 #
 # Usage:-
 # ./bloodhound2enum.sh
 # ./bloodhound2enum.sh -h | --help
 # ./bloodhound2enum.sh -f FQDN -d DOMAIN -i IP -u USER -p PASS
 #
-# Env var overrides (skip prompts):
+# Env var overrides  
 #   BH_FQDN, BH_DOMAIN, BH_IP, BH_USER, BH_PASS
 set -u
 
-# ---- Colors (same palette as rpc2enum.sh) ----
 DRED='\033[38;5;9m'
 DGREEN='\033[38;5;46m'
 DYELLOW='\033[38;5;226m'
@@ -47,16 +46,17 @@ EXAMPLES:
 
 WHAT IT RUNS:
     1. net rpc group members 'Domain Users'  -> users.txt
-    2. bloodyAD             (get bloodhound --transitive)
-    3. bloodhound-python    (-c All --zip)
-    4. rusthound            (--zip)
+    2. bloodyAD get search (computers)       -> computers.txt
+    3. bloodyAD             (get bloodhound --transitive)
+    4. bloodhound-python    (-c All --zip)
+    5. rusthound            (--zip)
 
     All loot is collected into a timestamped output directory.
 
 EOF
 }
 
-# ---- Defaults from env, may be overridden by flags below ----
+ 
 FQDN="${BH_FQDN:-}"
 DOMAIN="${BH_DOMAIN:-}"
 IP="${BH_IP:-}"
@@ -87,14 +87,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ---- Fill in anything still missing interactively ----
+ 
 [[ -z "$FQDN"   ]] && read -rp   "Enter Domain FQDN (dc.example.local):- " FQDN
 [[ -z "$DOMAIN" ]] && read -rp   "Enter Domain Name (example.local):- " DOMAIN
 [[ -z "$IP"     ]] && read -rp   "Enter Domain IP Address:- " IP
 [[ -z "$USER"   ]] && read -rp   "Put Valid Username :- " USER
 [[ -z "$PASS"   ]] && read -rsp  "Put valid Password for above user:- " PASS && echo
 
-# ---- Tool availability check ----
+ 
 check_tool() {
     if ! command -v "$1" &>/dev/null; then
         warn "'$1' not found in PATH - skipping steps that need it."
@@ -108,15 +108,14 @@ HAVE_BLOODYAD=1;   check_tool bloodyAD   || HAVE_BLOODYAD=0
 HAVE_BHPY=1;       check_tool bloodhound-python || HAVE_BHPY=0
 HAVE_RUSTHOUND=1;  check_tool rusthound  || HAVE_RUSTHOUND=0
 
-# ---- Output directory (keeps loot organized per run) ----
-OUTDIR="bh_loot_$(date +%Y%m%d_%H%M%S)_${DOMAIN}"
+ 
+OUTDIR="bh_loot_${DOMAIN}"
 mkdir -p "$OUTDIR"
 
 banner "BloodHound Enumeration script.."
 banner "Domain: $DOMAIN  FQDN: $FQDN  DC IP: $IP  User: $USER"
 banner "Loot directory: $OUTDIR"
 
-# ---- Optional /etc/hosts fix for FQDN resolution ----
 section "Checking FQDN resolution ($FQDN)"
 if ! getent hosts "$FQDN" &>/dev/null; then
     warn "'$FQDN' does not resolve. Kerberos auth (used by bloodhound-python/rusthound)"
@@ -142,7 +141,7 @@ else
     echo "'$FQDN' resolves fine."
 fi
 
-# ---- Optional clock sync check (Kerberos is strict about this) ----
+ 
 section "Checking clock skew against DC ($IP)"
 warn "Kerberos typically fails (KRB_AP_ERR_SKEW) if your clock differs from the DC by more than 5 minutes."
 read -rp "Sync system clock to the DC's time now via ntpdate? [y/N] " SYNC_TIME
@@ -166,21 +165,29 @@ if [[ "$HAVE_NET" -eq 1 ]]; then
     sleep 1
 fi
 
-# ---- 2. bloodyAD ----
+# ---- 2. Domain Computers via bloodyAD ----
+if [[ "$HAVE_BLOODYAD" -eq 1 ]]; then
+    section "AD Computers Enumeration (saved ${OUTDIR}/computers.txt)"
+    bloodyAD --host "$IP" -d "$DOMAIN" -u "$USER" -p "$PASS" get search --filter "(objectClass=computer)" --attr sAMAccountName,dNSHostName,operatingSystem \
+        | tee "$OUTDIR/computers.txt"
+    sleep 1
+fi
+
+# ---- 3. bloodyAD ----
 if [[ "$HAVE_BLOODYAD" -eq 1 ]]; then
     section "BloodyAD Collection (transitive)"
     ( cd "$OUTDIR" && bloodyAD --host "$IP" -d "$DOMAIN" -u "$USER" -p "$PASS" get bloodhound --transitive --path . )
     sleep 1
 fi
 
-# ---- 3. bloodhound-python ----
+# ---- 4. bloodhound-python ----
 if [[ "$HAVE_BHPY" -eq 1 ]]; then
     section "BloodHound.py Collection (Legacy collector, -c All --zip)"
     ( cd "$OUTDIR" && bloodhound-python -d "$DOMAIN" -u "$USER" -p "$PASS" -ns "$IP" -dc "$FQDN" -c All --zip )
     sleep 1
 fi
 
-# ---- 4. rusthound (BloodHound CE) ----
+# ---- 5. rusthound (BloodHound CE) ----
 if [[ "$HAVE_RUSTHOUND" -eq 1 ]]; then
     section "RustHound-CE Collection (--zip)"
     ( cd "$OUTDIR" && rusthound --domain "$DOMAIN" -f "$FQDN" -i "$IP" -u "$USER" -p "$PASS" --zip )
@@ -192,3 +199,4 @@ echo "All loot saved under: $OUTDIR"
 echo "Next steps:"
 echo "  - Import the .zip file(s) into BloodHound / BloodHound CE"
 echo "  - Review ${OUTDIR}/users.txt for account names to spray or cross-check"
+echo "  - Review ${OUTDIR}/computers.txt for hostnames/OS versions to target"
